@@ -1,46 +1,44 @@
-import bencodepy, bencoding, hashlib, base64, random, requests, time, sys, os, urllib.parse, codecs
+#!/usr/bin/python3
+print('######## SeedSmash 0.2 BETA by makuga01 ########\n')
+try:
+    import bencodepy, bencoding, hashlib, base64, random, requests, time, sys, os, urllib.parse, codecs
+except ImportError:
+    raise ImportError('Maybe installing requirements can help, try: pip install -r requirements.txt')
 
-#urlencode to some weird torrent request form
+#decodes given hash to hex and urlencodes it
 def uencode(udata):
-    print('uencode')
     hexd = codecs.decode(udata, "hex")
     d = {'d':hexd}
     encoded = urllib.parse.urlencode(d)[2:]
-    print(encoded)
     return encoded
 
-#Returns info hash from torrent file, code from DanySK's torrent2magnet https://github.com/DanySK/torrent2magnet/blob/develop/torrent2magnet.py
+#Returns urlencoded info hash from torrent file
 def get_info_hash(tfile):
     objTorrentFile = open(tfile, "rb")
     decodedDict = bencoding.bdecode(objTorrentFile.read())
     info_hash = hashlib.sha1(bencoding.bencode(decodedDict[b"info"])).hexdigest()
     enc_hash = uencode(info_hash)
-    print(enc_hash)
     return enc_hash
 
 #Returns announce and pid in list [announce,pid]
 def get_announce(tfile):
-    print('get announce')
     meta = bencodepy.decode_from_file(tfile)
     url = meta[b'announce'].decode()
     ann = url.split('?')[0]
     pid = url.split('=')[1]
     return [ann, pid]
 
-#Returns peer_id - id of torrent client in this case (-UT2210-) + 24 random characters (0123456789abcdef)
+#Returns urlencoded peer_id - id of torrent I'm using utorrent 2.210 (-UT2210- can be changed to whatever you want) 8 chars + 24 random chars (0123456789abcdef)
 def get_peer_id():
-    print('get peer id')
     chars = list('0123456789abcdef')
     p1 = ''
     for i in range(24):
         p1 += urllib.parse.quote_plus(random.choice(chars))
     peer_id = '-UT2210-'+uencode(p1)
-    print(peer_id)
     return peer_id
 
 #Returns key - 8 random characters (0123456789ABCDEF)
 def get_key():
-    print('get_key')
     key = ''
     chars = list('0123456789ABCDEF')
     for i in range(8):
@@ -55,34 +53,80 @@ def get_files():
             torrlist.append(file)
     return torrlist
 
+#main function
 def seed():
-    header={'user-agent':'uTorrent/2210(25534)'}
-    #time = sys.argv[1]*60 #Time in seconds
-    #upspeed = sys.argv[2]
+    if len(sys.argv) < 3:
+        print('Usage:\n'+sys.argv[0]+' <time in minutes> <Max up speed in kB/s(max 10 000)>\n')
+        exit(0)
 
+    seed_time = int(sys.argv[1])*60 #Time in seconds
+    print('seeding for',seed_time, 'seconds')
+
+    upspeed = int(sys.argv[2])
+
+    #list torrent files in current dir and select first one (temporary)
     tofiles=get_files()
-    if len(tofiles) > 20:
-        print('Max 20 torrent files!\nSelecting first 20')
-        tofiles = tofiles[:20]
     file=tofiles[0]
     print('choosing file',file)
 
+    #Get announce and pid
     ann = get_announce(file)[0]
     pid = get_announce(file)[1]
 
-    #peer id and port stays constant
+    #peer id and port stays constant on every torrent
     peer_id = get_peer_id()
     port = random.randint(10000, 65536)
+
     hash = get_info_hash(file)
     key = get_key()
 
+    #Set user agent to utorrent 2.210
+    header={'user-agent':'uTorrent/2210(25534)'}
+
+    #craft start url from given info
     start = ann+'?pid='+pid+'&info_hash='+hash+'&peer_id='+peer_id+'&port='+str(port)+'&uploaded=0&downloaded=0&left=0&corrupt=0&key='+key+'&event=started&numwant=200&compact=1&no_peer_id=1'
-    print(start)
+
+    #send request
     r = requests.get(start, headers=header)
-    print(r.text)
-    stop = ann+'?pid='+pid+'&info_hash='+hash+'&peer_id='+peer_id+'&port='+str(port)+'&uploaded=0&downloaded=0&left=0&corrupt=0&key='+key+'&event=stopped&numwant=0&compact=1&no_peer_id=1'
-    time.sleep(10)
+    print('\nResponse from announce:')
+    print(r.text, '\n')
+    start = time.time()
+    #generate random upload in range 0.8-1x of given up speed
+    randup = round(random.uniform(0.8,1)*seed_time*upspeed*1000)
+
+    #Craft stop url
+    stop = ann+'?pid='+pid+'&info_hash='+hash+'&peer_id='+peer_id+'&port='+str(port)+'&uploaded='+str(randup)+'&downloaded=0&left=0&corrupt=0&key='+key+'&event=stopped&numwant=0&compact=1&no_peer_id=1'
+
+    #sleep for given period of time and send request, when ctrl-c is pressed - end seeding
+    try:
+        print('seeding, press ctrl-c to stop')
+        time.sleep(seed_time)
+    except KeyboardInterrupt:
+        print('\nShutting down SeedSmash')
+        #calculate elapsed time from start of seeding
+        elapsed_time = time.time()-start
+
+        #adjust upload from default time to elapsed
+        randup = randup * (elapsed_time / seed_time)
+
+        #craft another stop url with changed upload
+        stop = ann+'?pid='+pid+'&info_hash='+hash+'&peer_id='+peer_id+'&port='+str(port)+'&uploaded='+str(randup)+'&downloaded=0&left=0&corrupt=0&key='+key+'&event=stopped&numwant=0&compact=1&no_peer_id=1'
+
+        #Send request
+        r = requests.get(stop, headers=header)
+
+        #print elapsed time + response from stop request + how much data was "uploaded"
+        print('Response from announce:')
+        print(r.text,'\n')
+        print('\nUploaded', round(randup/1000), 'kB in', round(elapsed_time),'seconds')
+        exit(0)
+    #send stop request
+    print('sending stop request, don\'t ctrl-c me now pls')
     r = requests.get(stop, headers=header)
-    print(r.text)
-    # print(ann+'?'+urllib.parse.urlencode(data))
+    elapsed_time = time.time()-start
+    #print elapsed time + response from stop request + how much data was "uploaded"
+    print('Response from announce:')
+    print(r.text,'\n')
+    print('\nUploaded', round(randup/1000), 'kB in', round(elapsed_time),'seconds')
+
 seed()
