@@ -24,17 +24,8 @@ def grab(string, start, end):
         return False
 
 def hex2bytes(hex_sring):
+    '''Literally hex to bytes'''
     return codecs.decode(hex_sring, "hex")
-
-def uencode(udata):
-
-    """decodes given hash to hex and urlencodes it"""
-
-    hexd = codecs.decode(udata, "hex")
-    d = {"d": hexd}
-    encoded = urllib.parse.urlencode(d)[2:]
-    return encoded
-
 
 def get_info_hash(tfile):
 
@@ -43,7 +34,7 @@ def get_info_hash(tfile):
     objTorrentFile = open(tfile, "rb")
     decodedDict = bencoding.bdecode(objTorrentFile.read())
     info_hash = hashlib.sha1(bencoding.bencode(decodedDict[b"info"])).hexdigest()
-    # enc_hash = uencode(info_hash)
+
     return hex2bytes(info_hash)
 
 
@@ -67,8 +58,6 @@ def get_peer_id():
 
     chars = list("0123456789abcdef")
     p1 = ''.join([urllib.parse.quote_plus(random.choice(chars)) for _ in range(24)])
-    # for i in range(24):
-    #     p1 += urllib.parse.quote_plus(random.choice(chars))
     peer_id = "-UT2210-".encode() + hex2bytes(p1)
     return peer_id
 
