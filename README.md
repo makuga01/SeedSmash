@@ -14,14 +14,16 @@ optional arguments:
 
 installing requirements: `pip install -r requirements.txt`
 
-#Working:
+## Working:
 - seeding one torrent for certain period of time - depends from announce
 
-#Not working (TODO):
+## Not working (TODO):
 - prolonging seeding time
 - seeding multiple torrents (Multi threading)
 -
 
 
-##DISCLAIMER
+### DISCLAIMER
 I'm not responsible for banned accounts, broken lives, nuclear wars etc. Use this tool on your own responsibility!
+
+
